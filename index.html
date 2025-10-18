@@ -104,6 +104,14 @@
     controls.enableDamping = true;
     controls.target.set(0, 1, 0);
 
+    // 🎯 Permitir solo rotación horizontal (Y)
+    controls.minPolarAngle = Math.PI / 2.5; // bloquea ángulo vertical superior
+    controls.maxPolarAngle = Math.PI / 2; // bloquea ángulo vertical inferior
+
+    //controls.enableZoom = false;  // desactiva zoom
+    controls.enablePan = false;   // desactiva desplazamiento lateral
+    
+    
     // Luces
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const dir = new THREE.DirectionalLight(0xffffff, 1);
