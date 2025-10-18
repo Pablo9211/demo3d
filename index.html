@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demo 3D con pines — Three.js + Power BI (publish-to-web)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial;
+      background: #0b1020;
+      color: #e8ecf1;
+      overflow: hidden;
+    }
+    header {
+      padding: 14px 18px;
+      border-bottom: 1px solid #1b233d;
+      background: rgba(11,16,32,.7);
+      backdrop-filter: blur(6px);
+      z-index: 10;
+    }
+    h1 { margin: 0; font-size: 16px; }
+    #three-root { position: absolute; inset: 0; }
+
+    .panel {
+      position: fixed;
+      right: 0; top: 0; bottom: 0;
+      width: 50vw;
+      background: rgba(15, 22, 45, 0.95);
+      border-left: 1px solid #223;
+      backdrop-filter: blur(10px);
+      transform: translateX(100%);
+      transition: transform .35s ease;
+      color: #e8ecf1;
+      padding: 0;
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      overflow: hidden;
+    }
+    .panel.open { transform: translateX(0); }
+    .panel-header { display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid #223; }
+    .panel-header h3 { margin:0; font-size:14px; font-weight:600; }
+    .panel-header button { all:unset; padding:6px 10px; border:1px solid #2a3b7a; background:#1a2550; border-radius:8px; cursor:pointer; }
+    .panel-body { position: relative; }
+    .panel-body iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+
+    .pin-label {
+      position: absolute;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: rgba(26, 40, 88, .9);
+      color: #e8ecf1;
+      border: 1px solid #3b4f91;
+      border-radius: 10px;
+      transform: translate(-50%, -140%);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/examples/jsm/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header><h1>Demo 3D con pines — Three.js</h1></header>
+  <div id="three-root"></div>
+  <div id="panel" class="panel"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+    import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+    import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
+    import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+    import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+
+    const params = new URLSearchParams(location.search);
+    const MODEL_URL = params.get('model') || './models/scene.glb';
+    const MTL_URL   = params.get('mtl');
+    // Power BI: pasa ?pbi=URL_PUBLICA (publish-to-web)
+    const PBI_URL = 'https://app.powerbi.com/view?r=eyJrIjoiZTFhYmE1N2QtMTgyMS00NzAyLWFmN2MtZjZhYzg2ZDg2NzhiIiwidCI6IjhkMGNjZmQzLWZhZDctNDhiNy04MzQ3LWE4NWExMzg2MzBmOSIsImMiOjh9';
+
+    const root = document.getElementById('three-root');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b1020);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
+    camera.position.set(6, 4, 8);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    root.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1, 0);
+
+    // Luces
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 1);
+    dir.position.set(5, 10, 7);
+    scene.add(dir);
+
+    // Panel base
+    const panel = document.getElementById('panel');
+    panel.innerHTML = `<div class="panel-header">
+        <h3 id="panelTitle">Panel</h3>
+        <button id=\"closePanel\">Cerrar</button>
+      </div>
+      <div class=\"panel-body\">
+        <iframe id=\"pbiFrame\" title=\"Power BI\"></iframe>
+      </div>`;
+    const pbiFrame = document.getElementById('pbiFrame');
+    const closePanel = document.getElementById('closePanel');
+    const panelTitle = document.getElementById('panelTitle');
+    closePanel.addEventListener('click',()=>{ panel.classList.remove('open'); pbiFrame.src='about:blank'; });
+
+    // Helpers
+    function fitCameraToObject(object, offset = 1.2) {
+      const box = new THREE.Box3().setFromObject(object);
+      const size = box.getSize(new THREE.Vector3()).length();
+      const center = box.getCenter(new THREE.Vector3());
+      controls.target.copy(center);
+      const dist = size / (2 * Math.tan((Math.PI * camera.fov) / 360));
+      camera.position.copy(center.clone().add(new THREE.Vector3(dist * offset, dist * offset * 0.4, dist * offset)));
+      camera.near = size / 100;
+      camera.far = size * 10;
+      camera.updateProjectionMatrix();
+    }
+
+    function normalizeScaleAndCenter(object) {
+      const box = new THREE.Box3().setFromObject(object);
+      const size = box.getSize(new THREE.Vector3());
+      const maxAxis = Math.max(size.x, size.y, size.z);
+      const scale = 5 / maxAxis;
+      object.scale.multiplyScalar(scale);
+      object.updateMatrixWorld(true);
+      const center = box.getCenter(new THREE.Vector3());
+      object.position.sub(center);
+    }
+
+    // Pins
+    const pins = [];
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function createPin(position, label, urlOverride) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx.beginPath(); ctx.arc(32, 32, 28, 0, Math.PI * 2);
+      ctx.fillStyle = '#2d7ff7'; ctx.fill();
+      ctx.lineWidth = 4; ctx.strokeStyle = '#9cc2ff'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(32, 32, 9, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      const map = new THREE.CanvasTexture(canvas);
+      const mat = new THREE.SpriteMaterial({ map, depthTest: false });
+      const sprite = new THREE.Sprite(mat);
+      sprite.position.copy(position);
+      sprite.scale.set(0.12, 0.12, 0.12); // pins más pequeños
+      sprite.userData.label = label;
+      sprite.userData.url = urlOverride || null;
+      scene.add(sprite);
+      pins.push(sprite);
+
+      const div = document.createElement('div');
+      div.className = 'pin-label';
+      div.textContent = label;
+      document.body.appendChild(div);
+
+      sprite.userData.updateLabel = () => {
+        const vector = sprite.position.clone().project(camera);
+        const x = (vector.x * 0.5 + 0.5) * renderer.domElement.clientWidth;
+        const y = (-vector.y * 0.5 + 0.5) * renderer.domElement.clientHeight;
+        const rect = renderer.domElement.getBoundingClientRect();
+        div.style.left = `${rect.left + x}px`;
+        div.style.top = `${rect.top + y}px`;
+        div.style.opacity = vector.z > 1 ? '0' : '1';
+      };
+
+      sprite.userData.dispose = () => div.remove();
+      return sprite;
+    }
+
+    function onClick(event) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(pins, false);
+      if (intersects.length > 0) {
+        const pin = intersects[0].object;
+        panelTitle.textContent = pin.userData.label;
+        const target = pin.userData.url || PBI_URL;
+        if (target && target !== 'about:blank') {
+          pbiFrame.src = target;
+          panel.classList.add('open');
+        }
+      }
+    }
+    renderer.domElement.addEventListener('click', onClick);
+
+    // Carga del modelo
+    const gltfLoader = new GLTFLoader();
+
+    function loadModel(url) {
+      const lower = url.toLowerCase();
+      if (lower.endsWith('.glb') || lower.endsWith('.gltf')) {
+        gltfLoader.load(url, (gltf) => { handleLoaded(gltf.scene); }, undefined, console.error);
+      } else if (lower.endsWith('.fbx')) {
+        new FBXLoader().load(url, (obj) => { handleLoaded(obj); }, undefined, console.error);
+      } else if (lower.endsWith('.dae')) {
+        new ColladaLoader().load(url, (dae) => { handleLoaded(dae.scene || dae); }, undefined, console.error);
+      } else if (lower.endsWith('.obj')) {
+        const objLoader = new OBJLoader();
+        if (MTL_URL) {
+          const mtlLoader = new MTLLoader();
+          mtlLoader.load(MTL_URL, (materials) => {
+            materials.preload();
+            objLoader.setMaterials(materials);
+            objLoader.load(url, (obj) => { handleLoaded(obj); }, undefined, console.error);
+          });
+        } else {
+          objLoader.load(url, (obj) => { handleLoaded(obj); }, undefined, console.error);
+        }
+      }
+    }
+
+    function handleLoaded(obj) {
+      normalizeScaleAndCenter(obj);
+      scene.add(obj);
+      fitCameraToObject(obj, 0.6);
+
+      const box = new THREE.Box3().setFromObject(obj);
+      const c = box.getCenter(new THREE.Vector3());
+      const s = box.getSize(new THREE.Vector3());
+      createPin(new THREE.Vector3(c.x - s.x * -0.5, c.y + s.y * 0.3, c.z + s.z * 0.4), 'Baños');
+      createPin(new THREE.Vector3(c.x - s.x * 0.3, c.y + s.y * 0.3, c.z + s.z * 0.4), 'Recepción');
+      
+    }
+
+    loadModel(MODEL_URL);
+
+    // Loop de render
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+      pins.forEach(p => p.userData.updateLabel && p.userData.updateLabel());
+    }
+    animate();
+  </script>
+</body>
+</html>
